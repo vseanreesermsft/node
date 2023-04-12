@@ -1,5 +1,6 @@
 #include "node_worker.h"
 #include "debug_utils-inl.h"
+#include "histogram-inl.h"
 #include "memory_tracker-inl.h"
 #include "node_errors.h"
 #include "node_buffer.h"
@@ -157,6 +158,9 @@ class WorkerThreadData {
     Isolate::Initialize(isolate, params);
     SetIsolateUpForNode(isolate);
 
+    // Be sure it's called before Environment::InitializeDiagnostics()
+    // so that this callback stays when the callback of
+    // --heapsnapshot-near-heap-limit gets is popped.
     isolate->AddNearHeapLimitCallback(Worker::NearHeapLimit, w);
 
     {
@@ -175,6 +179,8 @@ class WorkerThreadData {
       if (w_->per_isolate_opts_)
         isolate_data_->set_options(std::move(w_->per_isolate_opts_));
       isolate_data_->set_worker_context(w_);
+      isolate_data_->max_young_gen_size =
+          params.constraints.max_young_generation_size_in_bytes();
     }
 
     Mutex::ScopedLock lock(w_->mutex_);
@@ -328,7 +334,10 @@ void Worker::Run() {
       Debug(this, "Created Environment for worker with id %llu", thread_id_.id);
       if (is_stopped()) return;
       {
-        CreateEnvMessagePort(env_.get());
+        if (!CreateEnvMessagePort(env_.get())) {
+          return;
+        }
+
         Debug(this, "Created message port for worker %llu", thread_id_.id);
         if (LoadEnvironment(env_.get(), StartExecutionCallback{}).IsEmpty())
           return;
@@ -352,7 +361,8 @@ void Worker::Run() {
           more = uv_loop_alive(&data.loop_);
           if (more && !is_stopped()) continue;
 
-          EmitBeforeExit(env_.get());
+          if (EmitProcessBeforeExit(env_.get()).IsNothing())
+            break;
 
           // Emit `beforeExit` if the loop became alive either after emitting
           // event, or after running some callbacks.
@@ -366,8 +376,10 @@ void Worker::Run() {
     {
       int exit_code;
       bool stopped = is_stopped();
-      if (!stopped)
-        exit_code = EmitExit(env_.get());
+      if (!stopped) {
+        env_->VerifyNoStrongBaseObjects();
+        exit_code = EmitProcessExit(env_.get()).FromMaybe(1);
+      }
       Mutex::ScopedLock lock(mutex_);
       if (exit_code_ == 0 && !stopped)
         exit_code_ = exit_code;
@@ -380,17 +392,24 @@ void Worker::Run() {
   Debug(this, "Worker %llu thread stops", thread_id_.id);
 }
 
-void Worker::CreateEnvMessagePort(Environment* env) {
+bool Worker::CreateEnvMessagePort(Environment* env) {
   HandleScope handle_scope(isolate_);
-  Mutex::ScopedLock lock(mutex_);
+  std::unique_ptr<MessagePortData> data;
+  {
+    Mutex::ScopedLock lock(mutex_);
+    data = std::move(child_port_data_);
+  }
+
   // Set up the message channel for receiving messages in the child.
   MessagePort* child_port = MessagePort::New(env,
                                              env->context(),
-                                             std::move(child_port_data_));
+                                             std::move(data));
   // MessagePort::New() may return nullptr if execution is terminated
   // within it.
   if (child_port != nullptr)
     env->set_message_port(child_port->object(isolate_));
+
+  return child_port;
 }
 
 void Worker::JoinThread() {
@@ -586,6 +605,8 @@ void Worker::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[4]->IsBoolean());
   if (args[4]->IsTrue() || env->tracks_unmanaged_fds())
     worker->environment_flags_ |= EnvironmentFlags::kTrackUnmanagedFds;
+  if (env->hide_console_windows())
+    worker->environment_flags_ |= EnvironmentFlags::kHideConsoleWindows;
 }
 
 void Worker::StartThread(const FunctionCallbackInfo<Value>& args) {
@@ -718,6 +739,12 @@ void Worker::MemoryInfo(MemoryTracker* tracker) const {
   tracker->TrackField("parent_port", parent_port_);
 }
 
+bool Worker::IsNotIndicativeOfMemoryLeakAtExit() const {
+  // Worker objects always stay alive as long as the child thread, regardless
+  // of whether they are being referenced in the parent thread.
+  return true;
+}
+
 class WorkerHeapSnapshotTaker : public AsyncWrap {
  public:
   WorkerHeapSnapshotTaker(Environment* env, Local<Object> obj)
@@ -765,6 +792,39 @@ void Worker::TakeHeapSnapshot(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(scheduled ? taker->object() : Local<Object>());
 }
 
+void Worker::LoopIdleTime(const FunctionCallbackInfo<Value>& args) {
+  Worker* w;
+  ASSIGN_OR_RETURN_UNWRAP(&w, args.This());
+
+  Mutex::ScopedLock lock(w->mutex_);
+  // Using w->is_stopped() here leads to a deadlock, and checking is_stopped()
+  // before locking the mutex is a race condition. So manually do the same
+  // check.
+  if (w->stopped_ || w->env_ == nullptr)
+    return args.GetReturnValue().Set(-1);
+
+  uint64_t idle_time = uv_metrics_idle_time(w->env_->event_loop());
+  args.GetReturnValue().Set(1.0 * idle_time / 1e6);
+}
+
+void Worker::LoopStartTime(const FunctionCallbackInfo<Value>& args) {
+  Worker* w;
+  ASSIGN_OR_RETURN_UNWRAP(&w, args.This());
+
+  Mutex::ScopedLock lock(w->mutex_);
+  // Using w->is_stopped() here leads to a deadlock, and checking is_stopped()
+  // before locking the mutex is a race condition. So manually do the same
+  // check.
+  if (w->stopped_ || w->env_ == nullptr)
+    return args.GetReturnValue().Set(-1);
+
+  double loop_start_time = w->env_->performance_state()->milestones[
+      node::performance::NODE_PERFORMANCE_MILESTONE_LOOP_START];
+  CHECK_GE(loop_start_time, 0);
+  args.GetReturnValue().Set(
+      (loop_start_time - node::performance::timeOrigin) / 1e6);
+}
+
 namespace {
 
 // Return the MessagePort that is global for this Environment and communicates
@@ -798,13 +858,10 @@ void InitWorker(Local<Object> target,
     env->SetProtoMethod(w, "unref", Worker::Unref);
     env->SetProtoMethod(w, "getResourceLimits", Worker::GetResourceLimits);
     env->SetProtoMethod(w, "takeHeapSnapshot", Worker::TakeHeapSnapshot);
+    env->SetProtoMethod(w, "loopIdleTime", Worker::LoopIdleTime);
+    env->SetProtoMethod(w, "loopStartTime", Worker::LoopStartTime);
 
-    Local<String> workerString =
-        FIXED_ONE_BYTE_STRING(env->isolate(), "Worker");
-    w->SetClassName(workerString);
-    target->Set(env->context(),
-                workerString,
-                w->GetFunction(env->context()).ToLocalChecked()).Check();
+    env->SetConstructorFunction(target, "Worker", w);
   }
 
   {
