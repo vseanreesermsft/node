@@ -1,0 +1,116 @@
+<Project Sdk="Microsoft.Build.Traversal">
+  <ItemGroup>
+    <PackageReference Include="runtime.$(BuildOS)-$(BuildArchitecture).Microsoft.NETCore.Runtime.Wasm.Python.Transport"
+                      Version="$(runtimeosxarm64MicrosoftNETCoreRuntimeWasmPythonTransportVersion)" />
+  </ItemGroup>
+
+  <Target Name="CopyPythonToTree" BeforeTargets="Build" Condition="!Exists('$(PythonDir)\$(BuildOS)-$(BuildArchitecture)\.emsdk_version')">
+    <Makedir Directories="$(PythonDir)" />
+    <ItemGroup>
+      <PythonFiles Include="$(NuGetPackageRoot)\$([System.String]::Copy(%(PackageReference.Identity)).ToLowerInvariant())\%(PackageReference.Version)\tools\**"
+                 Condition="$([System.String]::Copy(%(PackageReference.Identity)).Contains('Microsoft.NETCore.Runtime.Wasm.Python')) == 'true'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PythonFiles)" DestinationFolder="$(PythonDir)\%(RecursiveDir)">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites"/>
+    </Copy>
+  </Target>
+
+  <Target Name="ReallyBuildWindows" AfterTargets="CopyPythonToTree" Condition="'$(BuildOS)' == 'win'">
+    <PropertyGroup>
+      <PythonPrefixedPath>$(PythonDir)$(BuildOS)-$(BuildArchitecture)\;$(PATH)</PythonPrefixedPath>
+      <VcBuildCommand Condition="'$(Configuration)' == 'Release'" >$(VcBuildCommand) release</VcBuildCommand>
+      <VcBuildCommand Condition="'$(Configuration)' != 'Release'" >$(VcBuildCommand) debug</VcBuildCommand>
+      <VcBuildCommand>$(VcBuildCommand) $(TargetArchitecture)</VcBuildCommand>
+      <VcBuildCommand>$(VcBuildCommand) openssl-no-asm</VcBuildCommand>
+      <VcBuildCommand>$(VcBuildCommand) without-intl</VcBuildCommand>
+      <VcBuildCommand>$(VcBuildCommand) static</VcBuildCommand>
+      <VcBuildCommand>$(VcBuildCommand) vs2022</VcBuildCommand>
+    </PropertyGroup>
+    <Exec Command=".\vcbuild.bat $(VcBuildCommand)"
+      IgnoreStandardErrorWarningFormat="true"
+      EnvironmentVariables="PATH=$([MSBuild]::Escape($(PythonPrefixedPath)))" />
+  </Target>
+
+  <Target Name="LayoutNodeWindows" AfterTargets="ReallyBuildWindows" Condition="'$(BuildOS)' == 'win'">
+    <ItemGroup>
+      <NodeFiles Include="$(NodeBuildDir)**" />
+      <NodeFiles Include="$(ProjectDir)deps\npm\bin\np*.*" />
+      <NodeFiles Include="$(ProjectDir)tools\msvs\nodevars.*" />
+      <NodeFiles Include="$(ProjectDir)tools\msvs\install_tools\*.*" />
+      <NodeFiles Include="$(ProjectDir)CHANGELOG.md" />
+      <NodeFiles Include="$(ProjectDir)LICENSE" />
+      <NodeFiles Include="$(ProjectDir)README.md" />
+      <NodeFiles Include="$(ProjectDir)src\res\node_etw_provider.man" />
+      <NodeFiles Remove="$(ProjectDir)deps\npm\bin\np*-cli.js" />
+      <NodeFiles Remove="$(NodeBuildDir)node_mksnapshot.*" />
+      <NodeFiles Remove="$(NodeBuildDir)*_host.*" />
+      <NodeFiles Remove="$(NodeBuildDir)openssl*.*" />
+      <NodeFiles Remove="$(NodeBuildDir)overlapped*.*" />
+      <NodeFiles Remove="$(NodeBuildDir)obj\**" />
+      <NodeFiles Remove="$(NodeBuildDir)lib\**" />
+      <NodeFiles Remove="$(NodeBuildDir)*test*.*" />
+      <NodeFiles Remove="$(NodeBuildDir)mkcodecache*.*" />
+      <NodeFiles Remove="$(NodeBuildDir)node.xlf\**" />
+      <NodeFiles Remove="$(NodeBuildDir)node.exp" />
+      <NodeFiles Remove="$(NodeBuildDir)node.iobj" />
+      <NodeFiles Remove="$(NodeBuildDir)node.ipdb" />
+      <NodeFiles Remove="$(NodeBuildDir)node.lib" />
+      <NodeFiles Remove="$(NodeBuildDir)node.map" />
+      <NodeFiles Remove="$(NodeBuildDir)node.pdb" />
+      <NpmFiles Include="$(ProjectDir)deps\npm\**" />
+      <NpmTestDirs Include="$([System.IO.Directory]::GetDirectories('$(ProjectDir)deps\npm\', 'test', SearchOption.AllDirectories))" />
+      <NpmFiles Remove="%(NpmTestDirs.Identity)\**" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NodeFiles)"
+      DestinationFiles="@(NodeFiles->'$(NodeInstallDir)\bin\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="@(NpmFiles)"
+      DestinationFiles="@(NpmFiles->'$(NodeInstallDir)\bin\node_modules\npm\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="ReallyBuildUnix" AfterTargets="CopyPythonToTree" Condition="'$(BuildOS)' != 'win'">
+    <PropertyGroup>
+      <PythonPrefixedPath>$(PythonDir)$(BuildOS)-$(BuildArchitecture)/bin:$(PATH)</PythonPrefixedPath>
+    </PropertyGroup>
+    <PropertyGroup>
+      <ConfigureFlags Condition="'$(Configuration)' != 'Release'">$(ConfigureFlags) --debug</ConfigureFlags>
+      <ConfigureFlags>$(ConfigureFlags) --dest-cpu=$(TargetArchitecture)</ConfigureFlags>
+      <ConfigureFlags>$(ConfigureFlags) --without-intl</ConfigureFlags>
+      <ConfigureFlags>$(ConfigureFlags) --openssl-no-asm</ConfigureFlags>
+      <ConfigureFlags>$(ConfigureFlags) --prefix=/</ConfigureFlags>
+    </PropertyGroup>
+    <Exec Command="./configure $(ConfigureFlags)"
+      IgnoreStandardErrorWarningFormat="true"
+      EnvironmentVariables="PATH=$(PythonPrefixedPath)" />
+    <Exec Command="make"
+      IgnoreStandardErrorWarningFormat="true"
+      EnvironmentVariables="PATH=$(PythonPrefixedPath);PREFIX=/" />
+    <Exec Command="make install"
+      IgnoreStandardErrorWarningFormat="true"
+      EnvironmentVariables="PATH=$(PythonPrefixedPath);PREFIX=/;DESTDIR=$(NodeInstallDir)" />
+  </Target>
+
+  <Target Name="LayoutNodeUnix" AfterTargets="ReallyBuildUnix" Condition="'$(BuildOS)' != 'win'">
+    <ItemGroup>
+      <NodeFiles Include="$(ProjectDir)CHANGELOG.md" />
+      <NodeFiles Include="$(ProjectDir)LICENSE" />
+      <NodeFiles Include="$(ProjectDir)README.md" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NodeFiles)"
+      DestinationFiles="@(NodeFiles->'$(NodeInstallDir)\bin\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="WriteVersionFile" AfterTargets="LayoutNodeWindows;LayoutNodeUnix">
+    <PropertyGroup>
+      <NodeEmsdkVersion>node-$(VersionPrefix)-dotnet</NodeEmsdkVersion>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(NodeInstallDir)\.emsdk_version"
+      Overwrite="true"
+      Lines="$(NodeEmsdkVersion)" />
+  </Target>
+
+  <Target Name="Build" DependsOnTargets="ReallyBuild" />
+  <Target Name="Test" />
+  <Target Name="ReallyPack" BeforeTargets="Pack">
+    <MSBuild Projects="eng/nuget/packages.builds" Targets="Build" />
+  </Target>
+</Project>

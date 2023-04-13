@@ -1,0 +1,12 @@
+diff --git a/tools/v8_gypfiles/directory.build.props b/tools/v8_gypfiles/directory.build.props
+index f0fdb0f394..8a86865b00 100644
+--- a/tools/v8_gypfiles/directory.build.props
++++ b/tools/v8_gypfiles/directory.build.props
+@@ -7,4 +7,7 @@
+       <PreprocessedFileName Condition="'%(PreprocessedFileName)' == ''">$(IntDir)%(FileName)%(Extension).pp</PreprocessedFileName>
+     </MARMASM>
+   </ItemDefinitionGroup>
++  <PropertyGroup>
++    <_SuppressSdkImports>true</_SuppressSdkImports>
++  </PropertyGroup>
+ </Project>
