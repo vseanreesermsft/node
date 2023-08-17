@@ -1,0 +1,41 @@
+diff --git a/deps/v8/src/snapshot/embedded/platform-embedded-file-writer-base.h b/deps/v8/src/snapshot/embedded/platform-embedded-file-writer-base.h
+index b8709cb932..98d59c0182 100644
+--- a/deps/v8/src/snapshot/embedded/platform-embedded-file-writer-base.h
++++ b/deps/v8/src/snapshot/embedded/platform-embedded-file-writer-base.h
+@@ -5,6 +5,8 @@
+ #ifndef V8_SNAPSHOT_EMBEDDED_PLATFORM_EMBEDDED_FILE_WRITER_BASE_H_
+ #define V8_SNAPSHOT_EMBEDDED_PLATFORM_EMBEDDED_FILE_WRITER_BASE_H_
+ 
++#include "src/objects/fixed-array-inl.h"
++
+ #include <cinttypes>
+ #include <cstdio>  // For FILE.
+ #include <memory>
+diff --git a/deps/v8/src/snapshot/mksnapshot.cc b/deps/v8/src/snapshot/mksnapshot.cc
+index c0d3846e9e..5b664df74f 100644
+--- a/deps/v8/src/snapshot/mksnapshot.cc
++++ b/deps/v8/src/snapshot/mksnapshot.cc
+@@ -12,6 +12,7 @@
+ #include "src/codegen/assembler-arch.h"
+ #include "src/codegen/source-position-table.h"
+ #include "src/flags/flags.h"
++#include "src/objects/fixed-array-inl.h"
+ #include "src/sanitizer/msan.h"
+ #include "src/snapshot/context-serializer.h"
+ #include "src/snapshot/embedded/embedded-file-writer.h"
+diff --git a/tools/gyp/pylib/gyp/generator/msvs.py b/tools/gyp/pylib/gyp/generator/msvs.py
+index 5448bf203f..e8e499efaa 100644
+--- a/tools/gyp/pylib/gyp/generator/msvs.py
++++ b/tools/gyp/pylib/gyp/generator/msvs.py
+@@ -3635,7 +3635,10 @@ def _AddSources2(
+                     elif file_name.startswith("$("):
+                         file_name = re.sub(r"^\$\([^)]+\)\\", "", file_name)
+                     detail.append(["ObjectFileName", "$(IntDir)\\" + file_name])
+-                grouped_sources[group].append([element, {"Include": source}] + detail)
++                element_node = [element, {"Include": source}]
++                if element == "MARMASM":
++                    element_node.append(["PreprocessedFileName", source + ".pp"])
++                grouped_sources[group].append(element_node + detail)
+ 
+ 
+ def _GetMSBuildProjectReferences(project):
