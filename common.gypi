@@ -331,7 +331,7 @@
     'conditions': [
       [ 'configuring_node', {
         'msvs_configuration_attributes': {
-          'OutputDirectory': '<(DEPTH)/out/$(Configuration)/',
+          'OutputDirectory': '<(DEPTH)/artifacts/obj/$(Configuration)/',
           'IntermediateDirectory': '$(OutDir)obj/$(ProjectName)/'
         },
       }],
@@ -401,7 +401,7 @@
         'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
         'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++17' ],
         'defines': [ '__STDC_FORMAT_MACROS' ],
-        'ldflags': [ '-rdynamic' ],
+        'ldflags': [ '-rdynamic', '-fuse-ld=lld', '-Wl,--build-id' ],
         'target_conditions': [
           # The 1990s toolchain on SmartOS can't handle thin archives.
           ['_type=="static_library" and OS=="solaris"', {
