@@ -39,14 +39,12 @@ stages:
               assetManifestPlatform: x64
               imagename: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-cross-20230215165054-0ea3466
               rootfs: 
-              ClangVersionArg: /p:ClangVersion=clang-9 /p:ClangPlusVersion=clang++-9
               archflag: --arch x64
             arm64:
               assetManifestOS: linux
               assetManifestPlatform: arm64
               imagename: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-cross-arm64-20230215165054-0ea3466
               rootfs: /crossrootfs/arm64
-              ClangVersionArg: /p:ClangVersion=clang-9 /p:ClangPlusVersion=clang++-9
               archflag: --arch arm64
         pool:
           ${{ if eq(variables['System.TeamProject'], 'public') }}:
@@ -64,7 +62,7 @@ stages:
           displayName: 'Clean up working directory'
 
         - bash: |
-            ./build.sh --ci --restore --build --pack $(archflag) --configuration $(_BuildConfig) $(_InternalBuildArgs) $(ClangVersionArg) /p:RestoreUsingNuGetTargets=false
+            ./build.sh --ci --restore --build --pack $(archflag) --configuration $(_BuildConfig) $(_InternalBuildArgs) /p:ClangBinDir=/usr/local/bin/  /p:RestoreUsingNuGetTargets=false
           displayName: 'Build and package'
           env:
             ROOTFS_DIR: $(rootfs)

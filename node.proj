@@ -71,15 +71,21 @@
       DestinationFiles="@(NpmFiles->'$(NodeInstallDir)\bin\node_modules\npm\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 
+  <Target Name="CopyLLVMToTree" BeforeTargets="ReallyBuildUnix" Condition="'$(BuildOS)' == 'Linux'">
+    <ItemGroup>
+      <LLVMFiles Include="$(NuGetPackageRoot)\$([System.String]::Copy(%(PackageReference.Identity)).ToLowerInvariant())\%(PackageReference.Version)\tools\$(MonoLLVMTargetOS)-%(PackageReference.PackageArch)\**"
+                 FileArch="%(PackageReference.PackageArch)" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LLVMFiles)" DestinationFolder="$(MonoLLVMDir)\%(LLVMFiles.FileArch)\%(RecursiveDir)">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites"/>
+    </Copy>
+  </Target>
+
   <Target Name="ReallyBuildUnix" AfterTargets="CopyPythonToTree" Condition="'$(BuildOS)' != 'Windows_NT'">
     <PropertyGroup>
       <PythonPrefixedPath>$(PythonDir)$(BuildOS)-$(BuildArchitecture)/bin:$(PATH)</PythonPrefixedPath>
-    </PropertyGroup>
-    <PropertyGroup>
-      <ClangVersion Condition="'$(ClangVersion)' == ''">clang</ClangVersion>
-      <ClangPlusVersion Condition="'$(ClangPlusVersion)' == ''">clang++</ClangPlusVersion>
-      <ObjCopy Condition="'$(ClangVersion)' == 'clang-9'">/usr/lib/llvm-9/bin/llvm-objcopy</ObjCopy>
-      <ObjCopy Condition="'$(ClangVersion)' != 'clang-9'">llvm-objcopy</ObjCopy>
+      <ClangBinDir Condition="'$(ClangBinDir)' == ''">/usr/bin/</ClangBinDir>
+      <ObjCopy>$(ClangBinDir)/llvm-objcopy</ObjCopy>
     </PropertyGroup>
     <PropertyGroup>
       <ConfigureFlags Condition="'$(Configuration)' != 'Release'">$(ConfigureFlags) --debug</ConfigureFlags>
@@ -92,12 +98,15 @@
       <ConfigureFlags Condition="'$(BuildOS)' == 'Linux'">$(ConfigureFlags) --dest-os=linux</ConfigureFlags>
       <GypEnvironment>$(GypEnvironment) target_arch=$(TargetArchitecture)</GypEnvironment>
       <GypEnvironment>$(GypEnvironment) v8_target_arch=$(TargetArchitecture)</GypEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC=$(ClangVersion)</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC_target=$(ClangVersion)</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC_host=$(ClangVersion)</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX=$(ClangPlusVersion)</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_target=$(ClangPlusVersion)</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_host=$(ClangPlusVersion)</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CC=$(ClangBinDir)clang</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CC_target=$(ClangBinDir)clang</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CC_host=$(ClangBinDir)clang</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) AR=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) AR_target=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) AR_host=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CXX=$(ClangBinDir)clang++</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_target=$(ClangBinDir)clang++</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_host=$(ClangBinDir)clang++</ConfigureEnvironment>
       <CFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64'">-target x86_64-linux-gnu</CFlags>
       <CFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64'">-target aarch64-linux-gnu</CFlags>
       <CFlags Condition="'$(BuildOS)' == 'Linux'">$(CFlags) --gcc-toolchain=$(ROOTFS_DIR)/usr/ --sysroot=$(ROOTFS_DIR)/</CFlags>
