@@ -3,3 +3,4 @@ MSFT-enable-llvm-ar.patch
 MSFT-fix-arm64-compile.patch
 MSFT-fix-arcade-incompatibility.patch
 MSFT-change-outdir.patch
+MSFT-use_libc++_for_host_and_target.patch

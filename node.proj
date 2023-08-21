@@ -1,4 +1,46 @@
 <Project Sdk="Microsoft.Build.Traversal">
+  <PropertyGroup>
+    <RootFsDirHost>$(ROOTFS_DIR)</RootFsDirHost>
+    <RootFsDirHost Condition="'$(ROOTFS_DIR_HOST)' != ''">$(ROOTFS_DIR_HOST)</RootFsDirHost>
+    <RootFsDirTarget>$(ROOTFS_DIR)</RootFsDirTarget>
+    <RootFsDirTarget Condition="'$(ROOTFS_DIR_TARGET)' != ''">$(ROOTFS_DIR_TARGET)</RootFsDirTarget>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <MonoLLVMHostOS Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">linux</MonoLLVMHostOS>
+    <MonoLLVMHostOS Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">osx</MonoLLVMHostOS>
+    <MonoLLVMHostOS Condition="'$(OS)' == 'Windows_NT'">win</MonoLLVMHostOS>
+    <MonoLLVMTargetOS>$(BuildOSRid)</MonoLLVMTargetOS>
+    <MonoLLVMTargetOS Condition="Exists('$(RootFsDirTarget)/lib/ld-musl-aarch64.so.1') or Exists('$(RootFsDirTarget)/lib/ld-musl-x86_64.so.1')">linux-musl</MonoLLVMTargetOS>
+    <MonoLLVMTargetOSPrefix Condition="'$(MonoLLVMHostOS)' != '$(MonoLLVMTargetOS)'">$(MonoLLVMTargetOS)-</MonoLLVMTargetOSPrefix>
+    <MonoLLVMSDKVersion Condition="'$(MonoLLVMTargetOS)' == 'linux'">$(runtimelinuxx64MicrosoftNETCoreRuntimeMonoLLVMSdkVersion)</MonoLLVMSDKVersion>
+    <MonoLLVMSDKVersion Condition="'$(MonoLLVMTargetOS)' == 'linux-musl'">$(runtimelinuxmuslx64MicrosoftNETCoreRuntimeMonoLLVMSdkVersion)</MonoLLVMSDKVersion>
+    <MonoLLVMToolsVersion Condition="'$(MonoLLVMTargetOS)' == 'linux'">$(runtimelinuxx64MicrosoftNETCoreRuntimeMonoLLVMToolsVersion)</MonoLLVMToolsVersion>
+    <MonoLLVMToolsVersion Condition="'$(MonoLLVMTargetOS)' == 'linux-musl'">$(runtimelinuxmuslx64MicrosoftNETCoreRuntimeMonoLLVMToolsVersion)</MonoLLVMToolsVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuildOS)' == 'Linux'">
+    <PackageReference Include="runtime.$(MonoLLVMTargetOS)-$(TargetArchitecture).Microsoft.NETCore.Runtime.Mono.LLVM.Tools"
+                      Version="$(MonoLLVMToolsVersion)"
+                      PackageArch="$(TargetArchitecture)"
+                      Condition="'$(TargetArchitecture)' != ''" />
+    <PackageReference Include="runtime.$(MonoLLVMTargetOS)-$(TargetArchitecture).Microsoft.NETCore.Runtime.Mono.LLVM.Sdk"
+                      Version="$(MonoLLVMSDKVersion)"
+                      PackageArch="$(TargetArchitecture)"
+                      Condition="'$(TargetArchitecture)' != ''" />
+    <PackageReference Include="runtime.$(MonoLLVMHostOS)-$(BuildArchitecture).Microsoft.NETCore.Runtime.Mono.LLVM.Tools"
+                      Version="$(MonoLLVMToolsVersion)"
+                      PackageArch="$(BuildArchitecture)"
+                      Condition="'$(BuildArchitecture)' != ''" />
+    <PackageReference Include="runtime.$(MonoLLVMHostOS)-$(BuildArchitecture).Microsoft.NETCore.Runtime.Mono.LLVM.Sdk"
+                      Version="$(MonoLLVMSDKVersion)"
+                      PackageArch="$(BuildArchitecture)"
+                      Condition="'$(BuildArchitecture)' != ''" />
+    <_PackageReferenceDeduplicated Include="@(PackageReference->Distinct())" />
+    <PackageReference Remove="@(PackageReference)" />
+    <PackageReference Include="@(_PackageReferenceDeduplicated->Distinct())" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="runtime.$(BuildOSRid)-$(BuildArchitecture).Microsoft.NETCore.Runtime.Wasm.Python.Transport"
                       Version="$(runtimeosxarm64MicrosoftNETCoreRuntimeWasmPythonTransportVersion)"
@@ -73,10 +115,15 @@
 
   <Target Name="CopyLLVMToTree" BeforeTargets="ReallyBuildUnix" Condition="'$(BuildOS)' == 'Linux'">
     <ItemGroup>
-      <LLVMFiles Include="$(NuGetPackageRoot)\$([System.String]::Copy(%(PackageReference.Identity)).ToLowerInvariant())\%(PackageReference.Version)\tools\$(MonoLLVMTargetOS)-%(PackageReference.PackageArch)\**"
+      <LLVMHostFiles Include="$(NuGetPackageRoot)\$([System.String]::Copy(%(PackageReference.Identity)).ToLowerInvariant())\%(PackageReference.Version)\tools\$(MonoLLVMHostOS)-%(PackageReference.PackageArch)\**"
+                 FileArch="%(PackageReference.PackageArch)" />
+      <LLVMTargetFiles Include="$(NuGetPackageRoot)\$([System.String]::Copy(%(PackageReference.Identity)).ToLowerInvariant())\%(PackageReference.Version)\tools\$(MonoLLVMTargetOS)-%(PackageReference.PackageArch)\**"
                  FileArch="%(PackageReference.PackageArch)" />
     </ItemGroup>
-    <Copy SourceFiles="@(LLVMFiles)" DestinationFolder="$(MonoLLVMDir)\%(LLVMFiles.FileArch)\%(RecursiveDir)">
+    <Copy SourceFiles="@(LLVMHostFiles)" DestinationFolder="$(MonoLLVMDir)\%(LLVMHostFiles.FileArch)\%(RecursiveDir)">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites"/>
+    </Copy>
+    <Copy SourceFiles="@(LLVMTargetFiles)" DestinationFolder="$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)%(LLVMTargetFiles.FileArch)\%(RecursiveDir)">
       <Output TaskParameter="DestinationFiles" ItemName="FileWrites"/>
     </Copy>
   </Target>
@@ -98,40 +145,46 @@
       <ConfigureFlags Condition="'$(BuildOS)' == 'Linux'">$(ConfigureFlags) --dest-os=linux</ConfigureFlags>
       <GypEnvironment>$(GypEnvironment) target_arch=$(TargetArchitecture)</GypEnvironment>
       <GypEnvironment>$(GypEnvironment) v8_target_arch=$(TargetArchitecture)</GypEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC=$(ClangBinDir)clang</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC_target=$(ClangBinDir)clang</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CC_host=$(ClangBinDir)clang</ConfigureEnvironment>
+      <GypEnvironment>$(GypEnvironment) llvmhostdir=$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(BuildArchitecture)'))</GypEnvironment>
+      <GypEnvironment>$(GypEnvironment) llvmtargetdir=$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)$(TargetArchitecture)'))</GypEnvironment>
+      <HostTriple Condition="'$(BuildOS)' == 'Linux' and '$(BuildArchitecture)' == 'x64'">-target x86_64-linux-gnu</HostTriple>
+      <HostTriple Condition="'$(BuildOS)' == 'Linux' and '$(BuildArchitecture)' == 'arm64'">-target aarch64-linux-gnu</HostTriple>
+      <TargetTriple Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64'">-target x86_64-linux-gnu</TargetTriple>
+      <TargetTriple Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64'">-target aarch64-linux-gnu</TargetTriple>
+      <TargetTriple Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64' and '$(MonoLLVMTargetOS)' == 'linux-musl'">-target x86_64-alpine-linux-musl</TargetTriple>
+      <TargetTriple Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64' and '$(MonoLLVMTargetOS)' == 'linux-musl'">-target aarch64-alpine-linux-musl</TargetTriple>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CC="$(ClangBinDir)clang $(TargetTriple)"</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CC_host="$(ClangBinDir)clang $(HostTriple)"</ConfigureEnvironment>
       <ConfigureEnvironment>$(ConfigureEnvironment) AR=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) AR_target=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
       <ConfigureEnvironment>$(ConfigureEnvironment) AR_host=$(ClangBinDir)llvm-ar</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX=$(ClangBinDir)clang++</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_target=$(ClangBinDir)clang++</ConfigureEnvironment>
-      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_host=$(ClangBinDir)clang++</ConfigureEnvironment>
-      <CFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64'">-target x86_64-linux-gnu</CFlags>
-      <CFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64'">-target aarch64-linux-gnu</CFlags>
-      <CFlags Condition="'$(BuildOS)' == 'Linux'">$(CFlags) --gcc-toolchain=$(ROOTFS_DIR)/usr/ --sysroot=$(ROOTFS_DIR)/</CFlags>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CXX="$(ClangBinDir)clang++ $(TargetTriple)"</ConfigureEnvironment>
+      <ConfigureEnvironment>$(ConfigureEnvironment) CXX_host="$(ClangBinDir)clang++ $(HostTriple)"</ConfigureEnvironment>
+      <CFlags Condition="'$(BuildOS)' == 'Linux'">$(CFlags) --gcc-toolchain=$(RootFsDirTarget)/usr/ --sysroot=$(RootFsDirTarget)/</CFlags>
       <CFlags Condition="'$(BuildOS)' == 'OSX' and '$(TargetArchitecture)' == 'x64'">-arch x86_64</CFlags>
       <CFlags Condition="'$(BuildOS)' == 'OSX' and '$(TargetArchitecture)' == 'arm64'">-arch arm64</CFlags>
-      <LDFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64'">-target x86_64-linux-gnu</LDFlags>
-      <LDFlags Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64'">-target aarch64-linux-gnu</LDFlags>
-      <LDFlags Condition="'$(BuildOS)' == 'Linux'">$(LDFlags) --gcc-toolchain=$(ROOTFS_DIR)/usr/ --sysroot=$(ROOTFS_DIR)/</LDFlags>
+      <CFlagsHost Condition="'$(BuildOS)' == 'Linux'">$(CFlagsHost) --gcc-toolchain=$(RootFsDirHost)/usr/ --sysroot=$(RootFsDirHost)/</CFlagsHost>
+      <LDFlags Condition="'$(BuildOS)' == 'Linux'">$(TargetTriple) --gcc-toolchain=$(RootFsDirTarget)/usr/ --sysroot=$(RootFsDirTarget)/</LDFlags>
       <LDFlags Condition="'$(BuildOS)' == 'OSX' and '$(TargetArchitecture)' == 'x64'">-arch x86_64</LDFlags>
       <LDFlags Condition="'$(BuildOS)' == 'OSX' and '$(TargetArchitecture)' == 'arm64'">-arch arm64</LDFlags>
-      <CXXFlags>$(CFlags)</CXXFlags>
-<!--  Use BinUtils for now, set BOTH the below to use LLVM instead -->
-<!--      <ConfigureEnvironment Condition="'$(BuildOS)' == 'Linux'">$(ConfigureEnvironment) AR=llvm-ar</ConfigureEnvironment> -->
-<!--      <ConfigureEnvironment Condition="'$(BuildOS)' == 'Linux'">$(ConfigureEnvironment) AR_target=llvm-ar</ConfigureEnvironment> -->
+      <LDFlagsHost Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'x64'">-target x86_64-linux-gnu</LDFlagsHost>
+      <LDFlagsHost Condition="'$(BuildOS)' == 'Linux' and '$(TargetArchitecture)' == 'arm64'">-target aarch64-linux-gnu</LDFlagsHost>
+      <LDFlagsHost Condition="'$(BuildOS)' == 'Linux'">$(LDFlagsHost) --gcc-toolchain=$(RootFsDirHost)/usr/ --sysroot=$(RootFsDirHost)/</LDFlagsHost>
+      <LDFlagsHost>$(LDFlagsHost) -Wl,-rpath,$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(BuildArchitecture)\lib'))</LDFlagsHost>
+      <CXXFlags>$(CFlags) -Wno-error=enum-constexpr-conversion</CXXFlags>
+      <CXXFlags Condition="'$(BuildOS)' == 'Linux'">$(CXXFlags) -I$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)$(TargetArchitecture)\include\c++\v1')) -L$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)$(TargetArchitecture)\lib')) -lc++ -stdlib=libc++</CXXFlags>
+      <CXXFlagsHost>$(CFlagsHost) -Wno-error=enum-constexpr-conversion</CXXFlagsHost>
+      <CXXFlagsHost Condition="'$(BuildOS)' == 'Linux'">$(CXXFlags) -I$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(BuildArchitecture)\include\c++\v1')) -L$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(BuildArchitecture)\lib')) -lc++ -stdlib=libc++ -Wl,-rpath,$([MSBuild]::NormalizePath('$(MonoLLVMDir)\$(BuildArchitecture)\lib'))</CXXFlagsHost>
       <ConfigureEnvironment Condition="'$(BuildOS)' == 'Linux'">$(ConfigureEnvironment) GYP_DEFINES="$(GypEnvironment)"</ConfigureEnvironment>
     </PropertyGroup>
     <Message Importance="High" Text="** Running $(ConfigureEnvironment) ./configure $(ConfigureFlags)" />
     <Exec Command="$(ConfigureEnvironment) ./configure $(ConfigureFlags)"
       IgnoreStandardErrorWarningFormat="true"
       EnvironmentVariables="PATH=$(PythonPrefixedPath)" />
-    <Message Importance="High" Text="** Running CFLAGS=%22$(CFlags)%22 LDFLAGS=%22$(LDFlags)%22 CXXFLAGS=%22$(CXXFlags)%22 make -j$([System.Environment]::ProcessorCount)" />
+    <Message Importance="High" Text="** Running CFLAGS=%22$(CFlags)%22 CFLAGS_host=%22$(CFlagsHost)%22 LDFLAGS=%22$(LDFlags)%22 LDFLAGS_host=%22$(LDFlagsHost)%22 CXXFLAGS=%22$(CXXFlags)%22 CXXFLAGS_host=%22$(CXXFlagsHost)%22 make -j1" />
     <Exec Command="CFLAGS=%22$(CFlags)%22 LDFLAGS=%22$(LDFlags)%22 CXXFLAGS=%22$(CXXFlags)%22 make -j$([System.Environment]::ProcessorCount)"
       IgnoreStandardErrorWarningFormat="true"
       EnvironmentVariables="PATH=$(PythonPrefixedPath);PREFIX=/" />
-    <Message Importance="High" Text="** Running CFLAGS=%22$(CFlags)%22 LDFLAGS=%22$(LDFlags)%22 CXXFLAGS=%22$(CXXFlags)%22 make install" />
+    <Message Importance="High" Text="** Running GYP_DEFINES=%22$(GypEnvironment)%22 CFLAGS=%22$(CFlags)%22 CFLAGS_host=%22$(CFlagsHost)%22 LDFLAGS=%22$(LDFlags)%22 LDFLAGS_host=%22$(LDFlagsHost)%22 CXXFLAGS=%22$(CXXFlags)%22 CXXFLAGS_host=%22$(CXXFlagsHost)%22 make install" />
     <Exec Command="CFLAGS=%22$(CFlags)%22 LDFLAGS=%22$(LDFlags)%22 CXXFLAGS=%22$(CXXFlags)%22 make install"
       IgnoreStandardErrorWarningFormat="true"
       EnvironmentVariables="PATH=$(PythonPrefixedPath);PREFIX=/;DESTDIR=$(NodeInstallDir)" />
@@ -145,6 +198,9 @@
     </ItemGroup>
     <Copy SourceFiles="@(NodeFiles)"
       DestinationFiles="@(NodeFiles->'$(NodeInstallDir)\%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)$(TargetArchitecture)\lib\libc++abi.so.1;$(MonoLLVMDir)\$(MonoLLVMTargetOSPrefix)$(TargetArchitecture)\lib\libc++.so.1"
+      DestinationFolder="$(NodeInstallDir)\bin"
+      Condition="'$(BuildOS)' == 'Linux'" />
     <ItemGroup>
       <NodeToStrip Include="$(NodeInstallDir)\bin\node" />
     </ItemGroup>

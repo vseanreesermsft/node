@@ -399,10 +399,18 @@
       }],
       [ 'OS in "linux freebsd openbsd solaris android aix os400 cloudabi"', {
         'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
-        'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++17' ],
+        'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++17', '-stdlib=libc++', '-Wno-error=enum-constexpr-conversion' ],
         'defines': [ '__STDC_FORMAT_MACROS' ],
         'ldflags': [ '-rdynamic', '-fuse-ld=lld', '-Wl,--build-id' ],
         'target_conditions': [
+          ['_toolset=="target"', {
+            'cflags_cc': [ '-I<(llvmtargetdir)/include/c++/v1/' ],
+            'ldflags': [ '-L<(llvmtargetdir)/lib/', '-lc++', '-stdlib=libc++', '-Wl,-rpath,\\$$ORIGIN' ],
+          }],
+          ['_toolset=="host"', {
+            'cflags_cc': [ '-I<(llvmhostdir)/include/c++/v1/' ],
+            'ldflags': [ '-L<(llvmhostdir)/lib/', '-lc++', '-stdlib=libc++', '-Wl,-rpath,<(llvmhostdir)/lib/' ],
+          }],
           # The 1990s toolchain on SmartOS can't handle thin archives.
           ['_type=="static_library" and OS=="solaris"', {
             'standalone_static_library': 1,
