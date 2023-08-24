@@ -19,7 +19,7 @@
         "baseline-babel-es2017.js",
         "baseline-naive-promises.js"
       ],
-      "flags": ["--allow-natives-syntax"],
+      "flags": ["--allow-natives-syntax", "--ignore-unhandled-promises"],
       "results_regexp": "^%s\\-AsyncAwait\\(Score\\): (.+)$",
       "tests": [
         {"name": "BaselineES2017"},
@@ -135,6 +135,18 @@
         {"name": "ForOfPush"},
         {"name": "ForOfSet"},
         {"name": "Spread"}
+      ]
+    },
+    {
+      "name": "ObjectDestructuringAssignment",
+      "path": ["ObjectDestructuringAssignment"],
+      "main": "run.js",
+      "resources": [],
+      "results_regexp": "^%s\\-ObjectDestructuringAssignment\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "Babel"},
+        {"name": "ForLoop"},
+        {"name": "DestructuringAssignment"}
       ]
     },
     {
@@ -444,8 +456,7 @@
       "main": "run.js",
       "resources": ["basic-export.js", "basic-import.js", "basic-namespace.js", "value.js"],
       "flags": [
-        "--allow-natives-syntax",
-        "--harmony-dynamic-import"
+        "--allow-natives-syntax"
       ],
       "results_regexp": "^%s\\-Modules\\(Score\\): (.+)$",
       "tests": [
@@ -510,6 +521,17 @@
       ]
     },
     {
+      "name": "ApiAccessors",
+      "path": ["ApiAccessors"],
+      "main": "run.js",
+      "resources": [ "accessor.js" ],
+      "flags": [],
+      "results_regexp": "^%s\\-ApiAccessors\\(Score\\): (.+)$",
+      "tests": [
+        {"name": "nodeType"}
+      ]
+    },
+    {
       "name": "Inspector",
       "path": ["Inspector"],
       "main": "run.js",
@@ -551,15 +573,17 @@
       "main": "run.js",
       "flags": ["--allow-natives-syntax"],
       "resources": [
-	      "toNumber.js",
-	      "toLocaleString.js"
+        "toNumber.js",
+        "toLocaleString.js",
+        "toHexString.js"
       ],
       "results_regexp": "^%s\\-Numbers\\(Score\\): (.+)$",
       "tests": [
         {"name": "Constructor"},
         {"name": "UnaryPlus"},
         {"name": "ParseFloat"},
-        {"name": "toLocaleString"}
+        {"name": "toLocaleString"},
+        {"name": "toHexString"}
       ]
     },
     {

@@ -94,7 +94,7 @@ TEST(ExternalString_ExternalBackingStoreSizeDecreases) {
 }
 
 TEST(ExternalString_ExternalBackingStoreSizeIncreasesMarkCompact) {
-  if (FLAG_never_compact) return;
+  if (!FLAG_compact) return;
   ManualGCScope manual_gc_scope;
   FLAG_manual_evacuation_candidates_selection = true;
   CcTest::InitializeVM();
@@ -130,6 +130,8 @@ TEST(ExternalString_ExternalBackingStoreSizeIncreasesMarkCompact) {
 }
 
 TEST(ExternalString_ExternalBackingStoreSizeIncreasesAfterExternalization) {
+  if (FLAG_single_generation) return;
+  ManualGCScope manual_gc_scope;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
@@ -171,6 +173,7 @@ TEST(ExternalString_ExternalBackingStoreSizeIncreasesAfterExternalization) {
 }
 
 TEST(ExternalString_PromotedThinString) {
+  if (FLAG_single_generation) return;
   ManualGCScope manual_gc_scope;
   CcTest::InitializeVM();
   LocalContext env;

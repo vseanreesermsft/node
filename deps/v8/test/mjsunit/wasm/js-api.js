@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm
 
-load('test/mjsunit/wasm/wasm-module-builder.js');
+d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
 
 function assertEq(val, expected) {
   assertSame(expected, val);
@@ -580,15 +580,15 @@ assertTrue(isConstructor(Table));
 assertThrows(
     () => Table(), TypeError, /must be invoked with 'new'/);
 assertThrows(
-    () => new Table(1), TypeError, 'WebAssembly.Module(): Argument 0 must be a table descriptor');
+    () => new Table(1), TypeError, 'WebAssembly.Table(): Argument 0 must be a table descriptor');
 assertThrows(
-    () => new Table({initial: 1, element: 1}), TypeError, /must be 'anyfunc'/);
+    () => new Table({initial: 1, element: 1}), TypeError, /must be a WebAssembly reference type/);
 assertThrows(
     () => new Table({initial: 1, element: 'any'}), TypeError,
-    /must be 'anyfunc'/);
+    /must be a WebAssembly reference type/);
 assertThrows(
     () => new Table({initial: 1, element: {valueOf() { return 'anyfunc' }}}),
-    TypeError, /must be 'anyfunc'/);
+    TypeError, /must be a WebAssembly reference type/);
 assertThrows(
     () => new Table(
         {initial: {valueOf() { throw new Error('here') }}, element: 'anyfunc'}),
@@ -609,9 +609,9 @@ assertTrue(new Table({initial: 1, element: 'anyfunc'}) instanceof Table);
 assertTrue(new Table({initial: 1.5, element: 'anyfunc'}) instanceof Table);
 assertTrue(
     new Table({initial: 1, maximum: 1.5, element: 'anyfunc'}) instanceof Table);
-assertThrows(
-    () => new Table({initial: 1, maximum: Math.pow(2, 32) - 1, element: 'anyfunc'}),
-    RangeError, /above the upper bound/);
+assertTrue(
+    new Table({initial: 1, maximum: Math.pow(2, 32) - 1, element: 'anyfunc'})
+        instanceof Table);
 
 // 'WebAssembly.Table.prototype' data property
 let tableProtoDesc = Object.getOwnPropertyDescriptor(Table, 'prototype');
@@ -698,8 +698,6 @@ assertThrows(
 assertThrows(
     () => set.call({}), TypeError, /Receiver is not a WebAssembly.Table/);
 assertThrows(
-    () => set.call(tbl1, 0), TypeError, /must be null or a WebAssembly function/);
-assertThrows(
     () => set.call(tbl1, undefined), TypeError,
     /must be convertible to a valid number/);
 assertThrows(
@@ -717,18 +715,18 @@ assertThrows(
   /must be convertible to a valid number/);
 assertThrows(
     () => set.call(tbl1, 0, undefined), TypeError,
-    /must be null or a WebAssembly function/);
+    /Argument 1 is invalid for table of type funcref/);
 assertThrows(
     () => set.call(tbl1, undefined, undefined), TypeError,
     /must be convertible to a valid number/);
 assertThrows(
     () => set.call(tbl1, 0, {}), TypeError,
-    /must be null or a WebAssembly function/);
-assertThrows(() => set.call(tbl1, 0, function() {
-}), TypeError, /must be null or a WebAssembly function/);
+    /Argument 1 is invalid for table of type funcref/);
+assertThrows(() => set.call(tbl1, 0, function() {}),
+             TypeError, /Argument 1 is invalid for table of type funcref/);
 assertThrows(
     () => set.call(tbl1, 0, Math.sin), TypeError,
-    /must be null or a WebAssembly function/);
+    /Argument 1 is invalid for table of type funcref/);
 assertThrows(
     () => set.call(tbl1, {valueOf() { throw Error('hai') }}, null), Error,
     'hai');
@@ -765,7 +763,7 @@ assertThrows(
     () => tbl.grow(-Infinity), TypeError, /must be convertible to a valid number/);
 assertEq(tbl.grow(0), 1);
 assertEq(tbl.length, 1);
-assertEq(tbl.grow(1, 4), 1);
+assertEq(tbl.grow(1, null, 4), 1);
 assertEq(tbl.length, 2);
 assertEq(tbl.length, 2);
 assertThrows(() => tbl.grow(1), Error, /failed to grow table by \d+/);
@@ -941,13 +939,6 @@ assertInstantiateSuccess(
   assertTrue(module instanceof Module);
   var instance = new WebAssembly.Instance(module);
   assertTrue(instance instanceof Instance);
-})();
-
-(function TestPassBigIntInGlobalWhenNotEnabled() {
-  assertThrows(() => new WebAssembly.Global({ value: "i64" }, 1), TypeError,
-               /Can't set the value/);
-  assertThrows(() => new WebAssembly.Global({ value: "i64" }, 1n), TypeError,
-               /Can't set the value/);
 })();
 
 (function TestAccessorFunctions() {

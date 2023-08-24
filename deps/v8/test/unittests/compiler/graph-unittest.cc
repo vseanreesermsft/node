@@ -4,7 +4,6 @@
 
 #include "test/unittests/compiler/graph-unittest.h"
 
-#include "src/compiler/js-heap-copy-reducer.h"
 #include "src/compiler/node-properties.h"
 #include "src/heap/factory.h"
 #include "src/objects/objects-inl.h"  // TODO(everyone): Make typer.h IWYU compliant.
@@ -15,10 +14,11 @@ namespace internal {
 namespace compiler {
 
 GraphTest::GraphTest(int num_parameters)
-    : canonical_(isolate()),
+    : TestWithNativeContextAndZone(kCompressGraphZone),
+      canonical_(isolate()),
       common_(zone()),
       graph_(zone()),
-      broker_(isolate(), zone(), FLAG_trace_heap_broker, false),
+      broker_(isolate(), zone()),
       source_positions_(&graph_),
       node_origins_(&graph_) {
   graph()->SetStart(graph()->NewNode(common()->Start(num_parameters)));
@@ -92,11 +92,11 @@ Node* GraphTest::EmptyFrameState() {
       graph()->NewNode(common()->StateValues(0, SparseInputMask::Dense()));
   FrameStateFunctionInfo const* function_info =
       common()->CreateFrameStateFunctionInfo(
-          FrameStateType::kInterpretedFunction, 0, 0,
+          FrameStateType::kUnoptimizedFunction, 0, 0,
           Handle<SharedFunctionInfo>());
   return graph()->NewNode(
-      common()->FrameState(BailoutId::None(), OutputFrameStateCombine::Ignore(),
-                           function_info),
+      common()->FrameState(BytecodeOffset::None(),
+                           OutputFrameStateCombine::Ignore(), function_info),
       state_values, state_values, state_values, NumberConstant(0),
       UndefinedConstant(), graph()->start());
 }

@@ -48,6 +48,7 @@ Page* HeapTester::AllocateByteArraysOnPage(
 }
 
 HEAP_TEST(InvalidatedSlotsNoInvalidatedRanges) {
+  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
@@ -63,6 +64,7 @@ HEAP_TEST(InvalidatedSlotsNoInvalidatedRanges) {
 }
 
 HEAP_TEST(InvalidatedSlotsSomeInvalidatedRanges) {
+  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
@@ -87,6 +89,7 @@ HEAP_TEST(InvalidatedSlotsSomeInvalidatedRanges) {
 }
 
 HEAP_TEST(InvalidatedSlotsAllInvalidatedRanges) {
+  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
@@ -156,6 +159,7 @@ HEAP_TEST(InvalidatedSlotsEvacuationCandidate) {
 }
 
 HEAP_TEST(InvalidatedSlotsResetObjectRegression) {
+  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
@@ -195,6 +199,7 @@ Handle<FixedArray> AllocateArrayOnEvacuationCandidate(Isolate* isolate,
 }
 
 HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
+  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -214,7 +219,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope scope(isolate);
+    HandleScope new_scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -226,6 +231,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
+  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -251,7 +257,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope scope(isolate);
+    HandleScope new_scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -263,6 +269,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
+  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -282,7 +289,7 @@ HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope scope(isolate);
+    HandleScope new_scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -294,6 +301,7 @@ HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsFastToSlow) {
+  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -319,7 +327,7 @@ HEAP_TEST(InvalidatedSlotsFastToSlow) {
   Handle<JSObject> obj;
   {
     AlwaysAllocateScopeForTesting always_allocate(heap);
-    Handle<JSFunction> function = factory->NewFunctionForTest(name);
+    Handle<JSFunction> function = factory->NewFunctionForTesting(name);
     function->shared().set_expected_nof_properties(3);
     obj = factory->NewJSObject(function, AllocationType::kOld);
   }
@@ -331,7 +339,7 @@ HEAP_TEST(InvalidatedSlotsFastToSlow) {
   Object::SetProperty(isolate, obj, prop_name3, evacuated).Check();
 
   {
-    HandleScope scope(isolate);
+    HandleScope new_scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     Object::SetProperty(isolate, obj, prop_name1, dead).Check();
     Object::SetProperty(isolate, obj, prop_name2, dead).Check();

@@ -35,10 +35,6 @@ from testrunner.local import testsuite
 from testrunner.objects import testcase
 from testrunner.outproc import base as outproc
 
-try:
-  basestring       # Python 2
-except NameError:  # Python 3
-  basestring = str
 
 FILES_PATTERN = re.compile(r"//\s+Files:(.*)")
 ENV_PATTERN = re.compile(r"//\s+Environment Variables:(.*)")
@@ -48,7 +44,7 @@ NO_HARNESS_PATTERN = re.compile(r"^// NO HARNESS$", flags=re.MULTILINE)
 
 # Flags known to misbehave when combining arbitrary mjsunit tests. Can also
 # be compiled regular expressions.
-COMBINE_TESTS_FLAGS_BLACKLIST = [
+MISBEHAVING_COMBINED_TESTS_FLAGS= [
   '--check-handle-count',
   '--enable-tracing',
   re.compile('--experimental.*'),
@@ -206,18 +202,18 @@ class CombinedTest(testcase.D8TestCase):
     """In addition to standard set of shell flags it appends:
       --disable-abortjs: %AbortJS can abort the test even inside
         trycatch-wrapper, so we disable it.
-      --es-staging: We blacklist all harmony flags due to false positives,
+      --harmony: We skip all harmony flags due to false positives,
           but always pass the staging flag to cover the mature features.
       --omit-quit: Calling quit() in JS would otherwise early terminate.
       --quiet-load: suppress any stdout from load() function used by
         trycatch-wrapper.
     """
     return [
-      '--test',
-      '--disable-abortjs',
-      '--es-staging',
-      '--omit-quit',
-      '--quiet-load',
+        '--test',
+        '--disable-abortjs',
+        '--harmony',
+        '--omit-quit',
+        '--quiet-load',
     ]
 
   def _get_cmd_params(self):
@@ -247,9 +243,9 @@ class CombinedTest(testcase.D8TestCase):
       elif flag1.startswith('-'):
         yield flag1
 
-  def _is_flag_blacklisted(self, flag):
-    for item in COMBINE_TESTS_FLAGS_BLACKLIST:
-      if isinstance(item, basestring):
+  def _is_flag_blocked(self, flag):
+    for item in MISBEHAVING_COMBINED_TESTS_FLAGS:
+      if isinstance(item, str):
         if item == flag:
           return True
       elif item.match(flag):
@@ -267,7 +263,7 @@ class CombinedTest(testcase.D8TestCase):
     unique_flags = OrderedDict((flag, True) for flag in merged_flags).keys()
     return [
       flag for flag in unique_flags
-      if not self._is_flag_blacklisted(flag)
+      if not self._is_flag_blocked(flag)
     ]
 
   def _get_source_flags(self):

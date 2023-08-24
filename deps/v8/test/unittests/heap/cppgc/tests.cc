@@ -6,29 +6,55 @@
 
 #include <memory>
 
+#include "src/heap/cppgc/object-allocator.h"
+#include "test/unittests/heap/cppgc/test-platform.h"
+
+#if !CPPGC_IS_STANDALONE
+#include "include/v8-initialization.h"
+#endif  // !CPPGC_IS_STANDALONE
+
 namespace cppgc {
 namespace internal {
 namespace testing {
 
 // static
-std::unique_ptr<cppgc::PageAllocator> TestWithPlatform::page_allocator_;
+std::shared_ptr<TestPlatform> TestWithPlatform::platform_;
 
 // static
 void TestWithPlatform::SetUpTestSuite() {
-  page_allocator_ = std::make_unique<v8::base::PageAllocator>();
-  cppgc::InitializePlatform(page_allocator_.get());
+  platform_ = std::make_shared<TestPlatform>(
+      std::make_unique<DelegatingTracingController>());
+
+#if !CPPGC_IS_STANDALONE
+  // For non-standalone builds, we need to initialize V8's platform so that it
+  // can be looked-up by trace-event.h.
+  v8::V8::InitializePlatform(platform_->GetV8Platform());
+#ifdef V8_SANDBOX
+  CHECK(v8::V8::InitializeSandbox());
+#endif  // V8_SANDBOX
+  v8::V8::Initialize();
+#endif  // !CPPGC_IS_STANDALONE
 }
 
 // static
 void TestWithPlatform::TearDownTestSuite() {
-  cppgc::ShutdownPlatform();
-  page_allocator_.reset();
+#if !CPPGC_IS_STANDALONE
+  v8::V8::Dispose();
+  v8::V8::DisposePlatform();
+#endif  // !CPPGC_IS_STANDALONE
+  platform_.reset();
 }
 
-TestWithHeap::TestWithHeap() : heap_(Heap::Create()) {}
+TestWithHeap::TestWithHeap()
+    : heap_(Heap::Create(platform_)),
+      allocation_handle_(heap_->GetAllocationHandle()) {}
+
+void TestWithHeap::ResetLinearAllocationBuffers() {
+  Heap::From(GetHeap())->object_allocator().ResetLinearAllocationBuffers();
+}
 
 TestSupportingAllocationOnly::TestSupportingAllocationOnly()
-    : no_gc_scope_(internal::Heap::From(GetHeap())) {}
+    : no_gc_scope_(GetHeap()->GetHeapHandle()) {}
 
 }  // namespace testing
 }  // namespace internal

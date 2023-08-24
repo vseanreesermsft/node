@@ -158,16 +158,16 @@ static void InitializeVM() {
 
 #define RUN() simulator.RunFrom(reinterpret_cast<Instruction*>(code->entry()))
 
-#define END()                                                       \
-  __ Debug("End test.", __LINE__, TRACE_DISABLE | LOG_ALL);         \
-  core.Dump(&masm);                                                 \
-  __ PopCalleeSavedRegisters();                                     \
-  __ Ret();                                                         \
-  {                                                                 \
-    CodeDesc desc;                                                  \
-    __ GetCode(masm.isolate(), &desc);                              \
-    code = Factory::CodeBuilder(isolate, desc, Code::STUB).Build(); \
-    if (FLAG_print_code) code->Print();                             \
+#define END()                                                                  \
+  __ Debug("End test.", __LINE__, TRACE_DISABLE | LOG_ALL);                    \
+  core.Dump(&masm);                                                            \
+  __ PopCalleeSavedRegisters();                                                \
+  __ Ret();                                                                    \
+  {                                                                            \
+    CodeDesc desc;                                                             \
+    __ GetCode(masm.isolate(), &desc);                                         \
+    code = Factory::CodeBuilder(isolate, desc, CodeKind::FOR_TESTING).Build(); \
+    if (FLAG_print_code) code->Print();                                        \
   }
 
 #else  // ifdef USE_SIMULATOR.
@@ -204,15 +204,15 @@ static void InitializeVM() {
     f.Call();                                      \
   }
 
-#define END()                                                       \
-  core.Dump(&masm);                                                 \
-  __ PopCalleeSavedRegisters();                                     \
-  __ Ret();                                                         \
-  {                                                                 \
-    CodeDesc desc;                                                  \
-    __ GetCode(masm.isolate(), &desc);                              \
-    code = Factory::CodeBuilder(isolate, desc, Code::STUB).Build(); \
-    if (FLAG_print_code) code->Print();                             \
+#define END()                                                                  \
+  core.Dump(&masm);                                                            \
+  __ PopCalleeSavedRegisters();                                                \
+  __ Ret();                                                                    \
+  {                                                                            \
+    CodeDesc desc;                                                             \
+    __ GetCode(masm.isolate(), &desc);                                         \
+    code = Factory::CodeBuilder(isolate, desc, CodeKind::FOR_TESTING).Build(); \
+    if (FLAG_print_code) code->Print();                                        \
   }
 
 #endif  // ifdef USE_SIMULATOR.
@@ -1878,24 +1878,41 @@ TEST(branch_to_reg) {
 static void BtiHelper(Register ipreg) {
   SETUP();
 
-  Label jump_target, jump_call_target, call_target, done;
+  Label jump_target, jump_call_target, call_target, test_pacibsp,
+      pacibsp_target, done;
   START();
   UseScratchRegisterScope temps(&masm);
   temps.Exclude(ipreg);
+
   __ Adr(x0, &jump_target);
   __ Br(x0);
   __ Nop();
+
   __ Bind(&jump_target, BranchTargetIdentifier::kBtiJump);
   __ Adr(x0, &call_target);
   __ Blr(x0);
+
   __ Adr(ipreg, &jump_call_target);
+  __ Blr(ipreg);
+  __ Adr(lr, &test_pacibsp);  // Make Ret return to test_pacibsp.
+  __ Br(ipreg);
+
+  __ Bind(&test_pacibsp, BranchTargetIdentifier::kNone);
+  __ Adr(ipreg, &pacibsp_target);
   __ Blr(ipreg);
   __ Adr(lr, &done);  // Make Ret return to done label.
   __ Br(ipreg);
+
   __ Bind(&call_target, BranchTargetIdentifier::kBtiCall);
   __ Ret();
+
   __ Bind(&jump_call_target, BranchTargetIdentifier::kBtiJumpCall);
   __ Ret();
+
+  __ Bind(&pacibsp_target, BranchTargetIdentifier::kPacibsp);
+  __ Autibsp();
+  __ Ret();
+
   __ Bind(&done);
   END();
 
@@ -2151,7 +2168,6 @@ TEST(far_branch_backward) {
         break;
       default:
         UNREACHABLE();
-        break;
     }
 
     // Now go past the limit so that branches are now out of range.
@@ -2187,7 +2203,6 @@ TEST(far_branch_backward) {
         break;
       default:
         UNREACHABLE();
-        break;
     }
 
     __ Bind(&fail);
@@ -9556,7 +9571,7 @@ TEST(fcmp) {
     // test. A UseScratchRegisterScope will make sure that they are restored to
     // the default values once we're finished.
     UseScratchRegisterScope temps(&masm);
-    masm.FPTmpList()->set_list(0);
+    masm.FPTmpList()->set_bits(0);
 
     __ Fmov(s8, 0.0);
     __ Fmov(s9, 0.5);
@@ -9575,9 +9590,9 @@ TEST(fcmp) {
     __ Mrs(x4, NZCV);
     __ Fcmp(s8, 0.0);
     __ Mrs(x5, NZCV);
-    masm.FPTmpList()->set_list(d0.bit());
+    masm.FPTmpList()->set_bits(DoubleRegList{d0}.bits());
     __ Fcmp(s8, 255.0);
-    masm.FPTmpList()->set_list(0);
+    masm.FPTmpList()->set_bits(0);
     __ Mrs(x6, NZCV);
 
     __ Fmov(d19, 0.0);
@@ -9597,9 +9612,9 @@ TEST(fcmp) {
     __ Mrs(x14, NZCV);
     __ Fcmp(d19, 0.0);
     __ Mrs(x15, NZCV);
-    masm.FPTmpList()->set_list(d0.bit());
+    masm.FPTmpList()->set_bits(DoubleRegList{d0}.bits());
     __ Fcmp(d19, 12.3456);
-    masm.FPTmpList()->set_list(0);
+    masm.FPTmpList()->set_bits(0);
     __ Mrs(x16, NZCV);
   }
 
@@ -10814,6 +10829,26 @@ TEST(fcvtmu) {
   CHECK_EQUAL_64(0x0UL, x30);
 }
 
+TEST(fcvtn) {
+  INIT_V8();
+  SETUP();
+  START();
+
+  double src[2] = {1.0f, 1.0f};
+  uintptr_t src_base = reinterpret_cast<uintptr_t>(src);
+
+  __ Mov(x0, src_base);
+  __ Ldr(q0, MemOperand(x0, 0));
+
+  __ Fcvtn(q0.V2S(), q0.V2D());
+
+  END();
+  RUN();
+
+  // Ensure top half is cleared.
+  CHECK_EQUAL_128(0, 0x3f800000'3f800000, q0);
+}
+
 TEST(fcvtns) {
   INIT_V8();
   SETUP();
@@ -11129,6 +11164,110 @@ TEST(fcvtzs) {
   CHECK_EQUAL_64(0x8000000000000000UL, x28);
   CHECK_EQUAL_64(0x7FFFFFFFFFFFFC00UL, x29);
   CHECK_EQUAL_64(0x8000000000000400UL, x30);
+}
+
+static void FjcvtzsHelper(uint64_t value, uint64_t expected,
+                          uint32_t expected_z) {
+  SETUP();
+  START();
+  __ Fmov(d0, bit_cast<double>(value));
+  __ Fjcvtzs(w0, d0);
+  __ Mrs(x1, NZCV);
+  END();
+
+  if (CpuFeatures::IsSupported(JSCVT)) {
+    RUN();
+
+    CHECK_EQUAL_64(expected, x0);
+    CHECK_EQUAL_32(expected_z, w1);
+  }
+}
+
+TEST(fjcvtzs) {
+  // Simple values.
+  FjcvtzsHelper(0x0000000000000000, 0, ZFlag);   // 0.0
+  FjcvtzsHelper(0x0010000000000000, 0, NoFlag);  // The smallest normal value.
+  FjcvtzsHelper(0x3fdfffffffffffff, 0, NoFlag);  // The value just below 0.5.
+  FjcvtzsHelper(0x3fe0000000000000, 0, NoFlag);  // 0.5
+  FjcvtzsHelper(0x3fe0000000000001, 0, NoFlag);  // The value just above 0.5.
+  FjcvtzsHelper(0x3fefffffffffffff, 0, NoFlag);  // The value just below 1.0.
+  FjcvtzsHelper(0x3ff0000000000000, 1, ZFlag);   // 1.0
+  FjcvtzsHelper(0x3ff0000000000001, 1, NoFlag);  // The value just above 1.0.
+  FjcvtzsHelper(0x3ff8000000000000, 1, NoFlag);  // 1.5
+  FjcvtzsHelper(0x4024000000000000, 10, ZFlag);  // 10
+  FjcvtzsHelper(0x7fefffffffffffff, 0, NoFlag);  // The largest finite value.
+
+  // Infinity.
+  FjcvtzsHelper(0x7ff0000000000000, 0, NoFlag);
+
+  // NaNs.
+  //  - Quiet NaNs
+  FjcvtzsHelper(0x7ff923456789abcd, 0, NoFlag);
+  FjcvtzsHelper(0x7ff8000000000000, 0, NoFlag);
+  //  - Signalling NaNs
+  FjcvtzsHelper(0x7ff123456789abcd, 0, NoFlag);
+  FjcvtzsHelper(0x7ff0000000000001, 0, NoFlag);
+
+  // Subnormals.
+  //  - A recognisable bit pattern.
+  FjcvtzsHelper(0x000123456789abcd, 0, NoFlag);
+  //  - The largest subnormal value.
+  FjcvtzsHelper(0x000fffffffffffff, 0, NoFlag);
+  //  - The smallest subnormal value.
+  FjcvtzsHelper(0x0000000000000001, 0, NoFlag);
+
+  // The same values again, but negated.
+  FjcvtzsHelper(0x8000000000000000, 0, NoFlag);
+  FjcvtzsHelper(0x8010000000000000, 0, NoFlag);
+  FjcvtzsHelper(0xbfdfffffffffffff, 0, NoFlag);
+  FjcvtzsHelper(0xbfe0000000000000, 0, NoFlag);
+  FjcvtzsHelper(0xbfe0000000000001, 0, NoFlag);
+  FjcvtzsHelper(0xbfefffffffffffff, 0, NoFlag);
+  FjcvtzsHelper(0xbff0000000000000, 0xffffffff, ZFlag);
+  FjcvtzsHelper(0xbff0000000000001, 0xffffffff, NoFlag);
+  FjcvtzsHelper(0xbff8000000000000, 0xffffffff, NoFlag);
+  FjcvtzsHelper(0xc024000000000000, 0xfffffff6, ZFlag);
+  FjcvtzsHelper(0xffefffffffffffff, 0, NoFlag);
+  FjcvtzsHelper(0xfff0000000000000, 0, NoFlag);
+  FjcvtzsHelper(0xfff923456789abcd, 0, NoFlag);
+  FjcvtzsHelper(0xfff8000000000000, 0, NoFlag);
+  FjcvtzsHelper(0xfff123456789abcd, 0, NoFlag);
+  FjcvtzsHelper(0xfff0000000000001, 0, NoFlag);
+  FjcvtzsHelper(0x800123456789abcd, 0, NoFlag);
+  FjcvtzsHelper(0x800fffffffffffff, 0, NoFlag);
+  FjcvtzsHelper(0x8000000000000001, 0, NoFlag);
+  // Test floating-point numbers of every possible exponent, most of the
+  // expected values are zero but there is a range of exponents where the
+  // results are shifted parts of this mantissa.
+  uint64_t mantissa = 0x0001234567890abc;
+
+  // Between an exponent of 0 and 52, only some of the top bits of the
+  // mantissa are above the decimal position of doubles so the mantissa is
+  // shifted to the right down to just those top bits. Above 52, all bits
+  // of the mantissa are shifted left above the decimal position until it
+  // reaches 52 + 64 where all the bits are shifted out of the range of 64-bit
+  // integers.
+  int first_exp_boundary = 52;
+  int second_exp_boundary = first_exp_boundary + 64;
+  for (int exponent = 0; exponent < 2048; exponent++) {
+    int e = exponent - 1023;
+
+    uint64_t expected = 0;
+    if (e < 0) {
+      expected = 0;
+    } else if (e <= first_exp_boundary) {
+      expected = (UINT64_C(1) << e) | (mantissa >> (52 - e));
+      expected &= 0xffffffff;
+    } else if (e < second_exp_boundary) {
+      expected = (mantissa << (e - 52)) & 0xffffffff;
+    } else {
+      expected = 0;
+    }
+
+    uint64_t value = (static_cast<uint64_t>(exponent) << 52) | mantissa;
+    FjcvtzsHelper(value, expected, NoFlag);
+    FjcvtzsHelper(value | kDSignMask, (-expected) & 0xffffffff, NoFlag);
+  }
 }
 
 TEST(fcvtzu) {
@@ -11662,12 +11801,13 @@ TEST(system_msr) {
   CHECK_EQUAL_64(0, x10);
 }
 
-TEST(system_pauth_a) {
+TEST(system_pauth_b) {
+  i::FLAG_sim_abort_on_bad_auth = false;
   SETUP();
   START();
 
   // Exclude x16 and x17 from the scratch register list so we can use
-  // Pac/Autia1716 safely.
+  // Pac/Autib1716 safely.
   UseScratchRegisterScope temps(&masm);
   temps.Exclude(x16, x17);
   temps.Include(x10, x11);
@@ -11681,29 +11821,29 @@ TEST(system_pauth_a) {
 
   // Generate PACs using the 3 system instructions.
   __ Mov(x17, 0x0000000012345678);
-  __ Pacia1716();
+  __ Pacib1716();
   __ Mov(x0, x17);
 
   __ Mov(lr, 0x0000000012345678);
-  __ Paciasp();
+  __ Pacibsp();
   __ Mov(x2, lr);
 
   // Authenticate the pointers above.
   __ Mov(x17, x0);
-  __ Autia1716();
+  __ Autib1716();
   __ Mov(x3, x17);
 
   __ Mov(lr, x2);
-  __ Autiasp();
+  __ Autibsp();
   __ Mov(x5, lr);
 
   // Attempt to authenticate incorrect pointers.
   __ Mov(x17, x2);
-  __ Autia1716();
+  __ Autib1716();
   __ Mov(x6, x17);
 
   __ Mov(lr, x0);
-  __ Autiasp();
+  __ Autibsp();
   __ Mov(x8, lr);
 
   // Restore stack pointer.
@@ -11729,8 +11869,8 @@ TEST(system_pauth_a) {
   CHECK_EQUAL_64(0x0000000012345678, x5);
 
   // Pointers corrupted after failing to authenticate.
-  CHECK_EQUAL_64(0x0020000012345678, x6);
-  CHECK_EQUAL_64(0x0020000012345678, x8);
+  CHECK_EQUAL_64(0x0040000012345678, x6);
+  CHECK_EQUAL_64(0x0040000012345678, x8);
 
 #endif  // USE_SIMULATOR
 }
@@ -11886,27 +12026,27 @@ TEST(register_bit) {
   // teardown.
 
   // Simple tests.
-  CHECK_EQ(x0.bit(), 1ULL << 0);
-  CHECK_EQ(x1.bit(), 1ULL << 1);
-  CHECK_EQ(x10.bit(), 1ULL << 10);
+  CHECK_EQ(RegList{x0}.bits(), 1ULL << 0);
+  CHECK_EQ(RegList{x1}.bits(), 1ULL << 1);
+  CHECK_EQ(RegList{x10}.bits(), 1ULL << 10);
 
   // AAPCS64 definitions.
-  CHECK_EQ(fp.bit(), 1ULL << kFramePointerRegCode);
-  CHECK_EQ(lr.bit(), 1ULL << kLinkRegCode);
+  CHECK_EQ(RegList{fp}.bits(), 1ULL << kFramePointerRegCode);
+  CHECK_EQ(RegList{lr}.bits(), 1ULL << kLinkRegCode);
 
   // Fixed (hardware) definitions.
-  CHECK_EQ(xzr.bit(), 1ULL << kZeroRegCode);
+  CHECK_EQ(RegList{xzr}.bits(), 1ULL << kZeroRegCode);
 
   // Internal ABI definitions.
-  CHECK_EQ(sp.bit(), 1ULL << kSPRegInternalCode);
-  CHECK_NE(sp.bit(), xzr.bit());
+  CHECK_EQ(RegList{sp}.bits(), 1ULL << kSPRegInternalCode);
+  CHECK_NE(RegList{sp}.bits(), RegList{xzr}.bits());
 
-  // xn.bit() == wn.bit() at all times, for the same n.
-  CHECK_EQ(x0.bit(), w0.bit());
-  CHECK_EQ(x1.bit(), w1.bit());
-  CHECK_EQ(x10.bit(), w10.bit());
-  CHECK_EQ(xzr.bit(), wzr.bit());
-  CHECK_EQ(sp.bit(), wsp.bit());
+  // RegList{xn}.bits() == RegList{wn}.bits() at all times, for the same n.
+  CHECK_EQ(RegList{x0}.bits(), RegList{w0}.bits());
+  CHECK_EQ(RegList{x1}.bits(), RegList{w1}.bits());
+  CHECK_EQ(RegList{x10}.bits(), RegList{w10}.bits());
+  CHECK_EQ(RegList{xzr}.bits(), RegList{wzr}.bits());
+  CHECK_EQ(RegList{sp}.bits(), RegList{wsp}.bits());
 }
 
 TEST(peek_poke_simple) {
@@ -11914,9 +12054,8 @@ TEST(peek_poke_simple) {
   SETUP();
   START();
 
-  static const RegList x0_to_x3 = x0.bit() | x1.bit() | x2.bit() | x3.bit();
-  static const RegList x10_to_x13 =
-      x10.bit() | x11.bit() | x12.bit() | x13.bit();
+  static const RegList x0_to_x3 = {x0, x1, x2, x3};
+  static const RegList x10_to_x13 = {x10, x11, x12, x13};
 
   // The literal base is chosen to have two useful properties:
   //  * When multiplied by small values (such as a register index), this value
@@ -12001,35 +12140,35 @@ TEST(peek_poke_unaligned) {
   //    x0-x6 should be unchanged.
   //    w10-w12 should contain the lower words of x0-x2.
   __ Poke(x0, 1);
-  Clobber(&masm, x0.bit());
+  Clobber(&masm, {x0});
   __ Peek(x0, 1);
   __ Poke(x1, 2);
-  Clobber(&masm, x1.bit());
+  Clobber(&masm, {x1});
   __ Peek(x1, 2);
   __ Poke(x2, 3);
-  Clobber(&masm, x2.bit());
+  Clobber(&masm, {x2});
   __ Peek(x2, 3);
   __ Poke(x3, 4);
-  Clobber(&masm, x3.bit());
+  Clobber(&masm, {x3});
   __ Peek(x3, 4);
   __ Poke(x4, 5);
-  Clobber(&masm, x4.bit());
+  Clobber(&masm, {x4});
   __ Peek(x4, 5);
   __ Poke(x5, 6);
-  Clobber(&masm, x5.bit());
+  Clobber(&masm, {x5});
   __ Peek(x5, 6);
   __ Poke(x6, 7);
-  Clobber(&masm, x6.bit());
+  Clobber(&masm, {x6});
   __ Peek(x6, 7);
 
   __ Poke(w0, 1);
-  Clobber(&masm, w10.bit());
+  Clobber(&masm, {w10});
   __ Peek(w10, 1);
   __ Poke(w1, 2);
-  Clobber(&masm, w11.bit());
+  Clobber(&masm, {w11});
   __ Peek(w11, 2);
   __ Poke(w2, 3);
-  Clobber(&masm, w12.bit());
+  Clobber(&masm, {w12});
   __ Peek(w12, 3);
 
   __ Drop(4);
@@ -12192,9 +12331,11 @@ static void PushPopSimpleHelper(int reg_count, int reg_size,
   // For simplicity, exclude LR as well, as we would need to sign it when
   // pushing it. This also ensures that the list has an even number of elements,
   // which is needed for alignment.
-  RegList allowed = ~(masm.TmpList()->list() | x18.bit() | lr.bit());
+  static RegList const allowed =
+      RegList::FromBits(static_cast<uint32_t>(~masm.TmpList()->bits())) -
+      RegList{x18, lr};
   if (reg_count == kPushPopMaxRegCount) {
-    reg_count = CountSetBits(allowed, kNumberOfRegisters);
+    reg_count = CountSetBits(allowed.bits(), kNumberOfRegisters);
   }
   DCHECK_EQ(reg_count % 2, 0);
   // Work out which registers to use, based on reg_size.
@@ -12240,7 +12381,7 @@ static void PushPopSimpleHelper(int reg_count, int reg_size,
         }
         break;
       case PushPopRegList:
-        __ PushSizeRegList<TurboAssembler::kDontStoreLR>(list, reg_size);
+        __ PushSizeRegList(list, reg_size);
         break;
     }
 
@@ -12265,7 +12406,7 @@ static void PushPopSimpleHelper(int reg_count, int reg_size,
         }
         break;
       case PushPopRegList:
-        __ PopSizeRegList<TurboAssembler::kDontLoadLR>(list, reg_size);
+        __ PopSizeRegList(list, reg_size);
         break;
     }
   }
@@ -12340,15 +12481,15 @@ static void PushPopFPSimpleHelper(int reg_count, int reg_size,
 
   // We can use any floating-point register. None of them are reserved for
   // debug code, for example.
-  static RegList const allowed = ~0;
+  static DoubleRegList const allowed = DoubleRegList::FromBits(~0);
   if (reg_count == kPushPopFPMaxRegCount) {
-    reg_count = CountSetBits(allowed, kNumberOfVRegisters);
+    reg_count = CountSetBits(allowed.bits(), kNumberOfVRegisters);
   }
   // Work out which registers to use, based on reg_size.
   auto v = CreateRegisterArray<VRegister, kNumberOfRegisters>();
   auto d = CreateRegisterArray<VRegister, kNumberOfRegisters>();
-  RegList list = PopulateVRegisterArray(nullptr, d.data(), v.data(), reg_size,
-                                        reg_count, allowed);
+  DoubleRegList list = PopulateVRegisterArray(nullptr, d.data(), v.data(),
+                                              reg_size, reg_count, allowed);
 
   // The literal base is chosen to have two useful properties:
   //  * When multiplied (using an integer) by small values (such as a register
@@ -12390,7 +12531,7 @@ static void PushPopFPSimpleHelper(int reg_count, int reg_size,
         }
         break;
       case PushPopRegList:
-        __ PushSizeRegList(list, reg_size, CPURegister::kVRegister);
+        __ PushSizeRegList(list, reg_size);
         break;
     }
 
@@ -12414,7 +12555,7 @@ static void PushPopFPSimpleHelper(int reg_count, int reg_size,
         }
         break;
       case PushPopRegList:
-        __ PopSizeRegList(list, reg_size, CPURegister::kVRegister);
+        __ PopSizeRegList(list, reg_size);
         break;
     }
   }
@@ -12487,24 +12628,25 @@ static void PushPopMixedMethodsHelper(int reg_size) {
 
   // Registers in the TmpList can be used by the macro assembler for debug code
   // (for example in 'Pop'), so we can't use them here.
-  static RegList const allowed = ~(masm.TmpList()->list());
+  static RegList const allowed =
+      RegList::FromBits(static_cast<uint32_t>(~masm.TmpList()->bits()));
   // Work out which registers to use, based on reg_size.
   auto r = CreateRegisterArray<Register, 10>();
   auto x = CreateRegisterArray<Register, 10>();
   PopulateRegisterArray(nullptr, x.data(), r.data(), reg_size, 10, allowed);
 
   // Calculate some handy register lists.
-  RegList r0_to_r3 = 0;
+  RegList r0_to_r3;
   for (int i = 0; i <= 3; i++) {
-    r0_to_r3 |= x[i].bit();
+    r0_to_r3.set(x[i]);
   }
-  RegList r4_to_r5 = 0;
+  RegList r4_to_r5;
   for (int i = 4; i <= 5; i++) {
-    r4_to_r5 |= x[i].bit();
+    r4_to_r5.set(x[i]);
   }
-  RegList r6_to_r9 = 0;
+  RegList r6_to_r9;
   for (int i = 6; i <= 9; i++) {
-    r6_to_r9 |= x[i].bit();
+    r6_to_r9.set(x[i]);
   }
 
   // The literal base is chosen to have two useful properties:
@@ -12566,17 +12708,17 @@ TEST(push_pop) {
   __ Mov(x1, 0x1111111111111111UL);
   __ Mov(x0, 0x0000000000000000UL);
   __ Claim(2);
-  __ PushXRegList(x0.bit() | x1.bit() | x2.bit() | x3.bit());
+  __ PushXRegList({x0, x1, x2, x3});
   __ Push(x3, x2);
-  __ PopXRegList(x0.bit() | x1.bit() | x2.bit() | x3.bit());
+  __ PopXRegList({x0, x1, x2, x3});
   __ Push(x2, x1, x3, x0);
   __ Pop(x4, x5);
   __ Pop(x6, x7, x8, x9);
 
   __ Claim(2);
-  __ PushWRegList(w0.bit() | w1.bit() | w2.bit() | w3.bit());
+  __ PushWRegList({w0, w1, w2, w3});
   __ Push(w3, w1, w2, w0);
-  __ PopWRegList(w10.bit() | w11.bit() | w12.bit() | w13.bit());
+  __ PopWRegList({w10, w11, w12, w13});
   __ Pop(w14, w15, w16, w17);
 
   __ Claim(2);
@@ -12586,20 +12728,20 @@ TEST(push_pop) {
   __ Pop(x22, x23);
 
   __ Claim(2);
-  __ PushXRegList(x1.bit() | x22.bit());
-  __ PopXRegList(x24.bit() | x26.bit());
+  __ PushXRegList({x1, x22});
+  __ PopXRegList({x24, x26});
 
   __ Claim(2);
-  __ PushWRegList(w1.bit() | w2.bit() | w4.bit() | w22.bit());
-  __ PopWRegList(w25.bit() | w27.bit() | w28.bit() | w29.bit());
+  __ PushWRegList({w1, w2, w4, w22});
+  __ PopWRegList({w25, w27, w28, w29});
 
   __ Claim(2);
-  __ PushXRegList(0);
-  __ PopXRegList(0);
+  __ PushXRegList({});
+  __ PopXRegList({});
   // Don't push/pop x18 (platform register) or lr
-  RegList all_regs = 0xFFFFFFFF & ~(x18.bit() | lr.bit());
-  __ PushXRegList<TurboAssembler::kDontStoreLR>(all_regs);
-  __ PopXRegList<TurboAssembler::kDontLoadLR>(all_regs);
+  RegList all_regs = RegList::FromBits(0xFFFFFFFF) - RegList{x18, lr};
+  __ PushXRegList(all_regs);
+  __ PopXRegList(all_regs);
   __ Drop(12);
 
   END();
@@ -13751,10 +13893,10 @@ TEST(cpureglist_utils_empty) {
   // Test an empty list.
   // Empty lists can have type and size properties. Check that we can create
   // them, and that they are empty.
-  CPURegList reg32(CPURegister::kRegister, kWRegSizeInBits, 0);
-  CPURegList reg64(CPURegister::kRegister, kXRegSizeInBits, 0);
-  CPURegList fpreg32(CPURegister::kVRegister, kSRegSizeInBits, 0);
-  CPURegList fpreg64(CPURegister::kVRegister, kDRegSizeInBits, 0);
+  CPURegList reg32(kWRegSizeInBits, RegList{});
+  CPURegList reg64(kXRegSizeInBits, RegList{});
+  CPURegList fpreg32(kSRegSizeInBits, DoubleRegList{});
+  CPURegList fpreg64(kDRegSizeInBits, DoubleRegList{});
 
   CHECK(reg32.IsEmpty());
   CHECK(reg64.IsEmpty());
@@ -14601,7 +14743,7 @@ TEST(near_call_no_relocation) {
   {
     Assembler::BlockConstPoolScope scope(&masm);
     int offset = (function.pos() - __ pc_offset()) / kInstrSize;
-    __ near_call(offset, RelocInfo::NONE);
+    __ near_call(offset, RelocInfo::NO_INFO);
   }
   END();
 
@@ -14759,7 +14901,7 @@ TEST(pool_size) {
 
   CodeDesc desc;
   masm.GetCode(isolate, &desc);
-  code = Factory::CodeBuilder(isolate, desc, Code::STUB)
+  code = Factory::CodeBuilder(isolate, desc, CodeKind::FOR_TESTING)
              .set_self_reference(masm.CodeObject())
              .Build();
 

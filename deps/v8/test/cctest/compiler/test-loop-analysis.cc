@@ -36,7 +36,8 @@ static const int kNumLeafs = 4;
 class LoopFinderTester : HandleAndZoneScope {
  public:
   LoopFinderTester()
-      : isolate(main_isolate()),
+      : HandleAndZoneScope(kCompressGraphZone),
+        isolate(main_isolate()),
         common(main_zone()),
         graph(main_zone()),
         jsgraph(main_isolate(), &graph, &common, nullptr, nullptr, nullptr),
@@ -118,7 +119,6 @@ class LoopFinderTester : HandleAndZoneScope {
   }
 
   Node* Return(Node* val, Node* effect, Node* control) {
-    Node* zero = graph.NewNode(common.Int32Constant(0));
     Node* ret = graph.NewNode(common.Return(), zero, val, effect, control);
     end->ReplaceInput(0, ret);
     return ret;
