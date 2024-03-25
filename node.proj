@@ -88,6 +88,11 @@
       <NodeFiles Remove="$(NodeBuildDir)bytecode_*.*" />
       <NodeFiles Remove="$(NodeBuildDir)mksnapshot.*" />
       <NodeFiles Remove="$(NodeBuildDir)node_mksnapshot.*" />
+      <NodeFiles Remove="$(NodeBuildDir)gen-regexp-special-case.*" />
+      <NodeFiles Remove="$(NodeBuildDir)genccode.*" />
+      <NodeFiles Remove="$(NodeBuildDir)genrb.*" />
+      <NodeFiles Remove="$(NodeBuildDir)iculslocs.*" />
+      <NodeFiles Remove="$(NodeBuildDir)icupkg.*" />
       <NodeFiles Remove="$(NodeBuildDir)*_host.*" />
       <NodeFiles Remove="$(NodeBuildDir)openssl*.*" />
       <NodeFiles Remove="$(NodeBuildDir)overlapped*.*" />
