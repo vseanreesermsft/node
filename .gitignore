@@ -8,6 +8,7 @@
 # Exclude specific dotfiles that we want to track.
 !deps/**/.*
 !test/fixtures/**/.*
+!.config
 !.clang-format
 !.editorconfig
 !.eslintignore

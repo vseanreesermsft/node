@@ -30,8 +30,6 @@ stages:
       - job: Build_Linux
         displayName: Linux
         timeoutInMinutes: 360
-        variables:
-        - _BuildConfig: Release
         strategy:
           matrix:
             x64:
@@ -49,12 +47,8 @@ stages:
               ClangVersionArg: /p:ClangVersion=clang-9 /p:ClangPlusVersion=clang++-9
               archflag: --arch arm64
         pool:
-          ${{ if eq(variables['System.TeamProject'], 'public') }}:
-            name: $(DncEngPublicBuildPool)
-            demands: ImageOverride -equals build.ubuntu.2204.amd64.open
-          ${{ if eq(variables['System.TeamProject'], 'internal') }}:
-            name: $(DncEngInternalBuildPool)
-            demands: ImageOverride -equals build.ubuntu.2204.amd64
+          name: $(DncEngPublicBuildPool)
+          demands: ImageOverride -equals build.ubuntu.2204.amd64.open
         container:
           image: $(imagename)
         steps:
@@ -69,17 +63,10 @@ stages:
           env:
             ROOTFS_DIR: $(rootfs)
 
-        - bash:
-            ./eng/common/build.sh --ci --restore --publish --configuration $(_BuildConfig) $(_InternalBuildArgs) /p:AssetManifestOS=$(assetManifestOS) /p:PlatformName=$(assetManifestPlatform) --projects $(Build.SourcesDirectory)/node.proj
-          displayName: Publish packages
-          condition: and(succeeded(), ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest'))
-
       ############ MACOS BUILD ############
       - job: Build_macOS
         displayName: macOS
         timeoutInMinutes: 480
-        variables:
-        - _BuildConfig: Release
         strategy:
           matrix:
             x64:
@@ -91,7 +78,7 @@ stages:
               assetManifestPlatform: arm64
               archflag: --arch arm64
         pool:
-          vmImage: macos-11
+          vmImage: macos-12
         steps:
         - script: |
             git clean -ffdx
@@ -102,17 +89,10 @@ stages:
             ./build.sh --ci --restore --build --pack $(archflag) --configuration $(_BuildConfig) $(_InternalBuildArgs) /p:RestoreUsingNuGetTargets=false
           displayName: 'Build and package'
 
-        - bash:
-            ./eng/common/build.sh --ci --restore --publish --configuration $(_BuildConfig) $(_InternalBuildArgs) /p:AssetManifestOS=$(assetManifestOS) /p:PlatformName=$(assetManifestPlatform) --projects $(Build.SourcesDirectory)/node.proj
-          displayName: Publish packages
-          condition: and(succeeded(), ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest'))
-
       ############ WINDOWS BUILD ############
       - job: Build_Windows
         displayName: Windows
         timeoutInMinutes: 120
-        variables:
-        - _BuildConfig: Release
         strategy:
           matrix:
             x64:
@@ -124,12 +104,8 @@ stages:
               assetManifestPlatform: arm64
               archflag: -arch arm64
         pool:
-          ${{ if eq(variables['System.TeamProject'], 'public') }}:
-            name: $(DncEngPublicBuildPool)
-            demands: ImageOverride -equals 1es-windows-2022-open
-          ${{ if eq(variables['System.TeamProject'], 'internal') }}:
-            name: $(DncEngInternalBuildPool)
-            demands: ImageOverride -equals 1es-windows-2022
+          name: $(DncEngPublicBuildPool)
+          demands: ImageOverride -equals 1es-windows-2022-open
         steps:
         - script: |
             git clean -ffdx
@@ -138,17 +114,3 @@ stages:
 
         - powershell: eng\build.ps1 -ci -restore -build -pack $(archflag) -configuration $(_BuildConfig) $(_InternalBuildArgs) /p:RestoreUsingNuGetTargets=false
           displayName: 'Build and package'
-
-        - powershell: eng\common\build.ps1 -ci -restore -publish -configuration $(_BuildConfig) $(_InternalBuildArgs) /p:AssetManifestOS=$(_BuildConfig)-$(assetManifestOS) /p:PlatformName=$(assetManifestPlatform) -projects $(Build.SourcesDirectory)\node.proj
-          displayName: Publish packages
-          condition: and(succeeded(), ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest'))
-
-############ POST BUILD ARCADE LOGIC ############
-- ${{ if and(ne(variables['System.TeamProject'], 'public'), ne(variables['Build.Reason'], 'PullRequest')) }}:
-  - template: /eng/common/templates/post-build/post-build.yml
-    parameters:
-      publishingInfraVersion: 3
-      enableSourceLinkValidation: false
-      enableSigningValidation: false
-      enableSymbolValidation: false
-      enableNugetValidation: true
