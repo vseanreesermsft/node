@@ -83,7 +83,7 @@ extends:
           - ${{ each buildjob in parameters.linuxBuilds }}:
             - job: Build_${{ replace(buildjob.assetManifestOS, '-', '_') }}_${{ buildjob.arch }}
               displayName: ${{ buildjob.assetManifestOS }} ${{ buildjob.arch }}
-              timeoutInMinutes: 360
+              timeoutInMinutes: 480
               pool:
                 name: $(DncEngInternalBuildPool)
                 image: 1es-ubuntu-2204
@@ -132,7 +132,7 @@ extends:
           - ${{ each buildjob in parameters.windowsBuilds }}:
             - job: Build_Windows_${{ buildjob.arch }}
               displayName: Windows ${{ buildjob.arch }}
-              timeoutInMinutes: 120
+              timeoutInMinutes: 480
               pool:
                 name: $(DncEngInternalBuildPool)
                 image: 1es-windows-2022
